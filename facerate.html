@@ -1,0 +1,85 @@
+<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FaceRate — оценки фото</title><meta name="theme-color" content="#ff5d3b">
+<style>
+:root{--bg:#faf8f5;--card:#fff;--tx:#1b1a1f;--mu:#7a7784;--ac:#ff5d3b;--bd:#ece8e2;box-sizing:border-box}
+@media(prefers-color-scheme:dark){:root:not([data-t=light]){--bg:#111013;--card:#1b1a1f;--tx:#f3f1f6;--mu:#948fa0;--bd:#2a2831}}
+:root[data-t=dark]{--bg:#111013;--card:#1b1a1f;--tx:#f3f1f6;--mu:#948fa0;--bd:#2a2831}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:env(safe-area-inset-top,0) 0 calc(76px + env(safe-area-inset-bottom,0))}
+header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;max-width:560px;margin:auto;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px)}
+h1{margin:0;font-size:24px;letter-spacing:-.5px;color:var(--ac)}main{max-width:560px;margin:auto;padding:0 12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:20px;margin-bottom:14px;overflow:hidden;animation:in .25s}.p{padding:14px}
+@keyframes in{from{opacity:0;transform:translateY(8px)}}
+button,input,textarea{font:inherit;color:inherit}button{border:0;border-radius:999px;padding:8px 16px;background:var(--ac);color:#fff;cursor:pointer}
+button.g{background:none;color:var(--mu);padding:6px 10px}button.g.on{color:var(--ac);font-weight:700}
+input,textarea{width:100%;border:1px solid var(--bd);border-radius:12px;padding:10px;background:var(--bg);margin-bottom:8px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}.me{display:flex;gap:8px;align-items:center}.mu{color:var(--mu);font-size:13px}
+.av{width:38px;height:38px;border-radius:50%;background:var(--ac);color:#fff;display:grid;place-items:center;font-weight:700;flex:none}
+.im{width:100%;display:block;max-height:78vh;object-fit:cover}.pop{display:flex;flex-wrap:wrap;gap:2px;margin-top:6px}.pop button{width:34px;padding:6px 0}
+summary{cursor:pointer;color:var(--ac);list-style:none;font-weight:600}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-around;background:var(--card);border-top:1px solid var(--bd);padding:8px 0 calc(8px + env(safe-area-inset-bottom,0))}
+nav button{background:none;color:var(--mu)}nav button.a{color:var(--ac);font-weight:700}
+</style></head><body>
+<header><h1>FaceRate</h1><div><button class="g" data-sort="1" id="so"></button><button class="g" id="th">◐</button></div></header>
+<main id="app"><p class="mu">…</p></main><nav id="nav"></nav>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const CFG={apiKey:"AIzaSyCinsvR_GPlQ0GuqNDWEJbxvlpYXvXbHUQ",authDomain:"rapp-daniil-c9d47.firebaseapp.com",projectId:"rapp-daniil-c9d47",storageBucket:"rapp-daniil-c9d47.firebasestorage.app",messagingSenderId:"19447538781",appId:"1:19447538781:web:fbb3ae9401d855d17319b4"};
+const $=s=>document.querySelector(s),esc=s=>String(s).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
+function toast(m){const e=document.createElement('div');e.textContent=m;e.style.cssText='position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:10px 16px;border-radius:99px;z-index:20;max-width:90%';document.body.appendChild(e);setTimeout(()=>e.remove(),3200)}
+window.addEventListener('error',e=>toast(String(e.message)));
+let db,auth,uid,tab='feed',sort='new',peer=null,pend='',pcap='',pok=false,LD=false,U=[];const S={profiles:{},photos:[],ratings:[],comments:[],follows:[]};
+try{const t=localStorage.getItem('t');if(t)document.documentElement.dataset.t=t}catch(e){}
+const nm=u=>S.profiles[u]?S.profiles[u].nick:'user',mine=()=>S.profiles[uid];
+const avt=u=>S.profiles[u]&&S.profiles[u].av?`<img src="${S.profiles[u].av}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`:esc((nm(u)[0]||'?').toUpperCase());
+const agg=ids=>{const r=S.ratings.filter(x=>ids.includes(x.pid));return{n:r.length,a:r.length?r.reduce((q,x)=>q+x.score,0)/r.length:0}},fmt=a=>a?a.toFixed(1):'–';
+const run=p=>p.catch(e=>toast(e.code||e.message));
+const pick=(w,q)=>new Promise(r=>{const i=document.createElement('input');i.type='file';i.accept='image/*';i.style.display='none';document.body.appendChild(i);i.addEventListener('change',()=>{const f=i.files[0];i.remove();if(!f)return r(null);const im=new Image();im.onload=()=>{const k=Math.min(1,w/im.width),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);let d,z=q;do{d=c.toDataURL('image/jpeg',z);z-=.1}while(d.length>180000&&z>.2);r(d)};im.onerror=()=>{toast('Не удалось загрузить фото');r(null)};im.src=URL.createObjectURL(f)});i.click()});
+firebase.initializeApp(CFG);auth=firebase.auth();db=firebase.firestore();
+auth.onAuthStateChanged(u=>{U.forEach(f=>f());U=[];LD=false;if(!u){uid=null;login();return}uid=u.uid;
+ const sub=(c,k,q)=>U.push((q?q(db.collection('rp_'+c)):db.collection('rp_'+c)).onSnapshot(s=>{const a=s.docs.map(d=>({id:d.id,...d.data()}));if(k==='profiles'){S.profiles={};a.forEach(p=>S.profiles[p.id]=p);LD=true}else S[k]=a;render()},e=>toast(c+': '+(e.code||e.message))));
+ sub('profiles','profiles');sub('photos','photos',c=>c.orderBy('ts','desc').limit(60));sub('ratings','ratings');sub('comments','comments');sub('follows','follows');render()});
+function login(){$('#nav').innerHTML='';$('#app').innerHTML='<div class="card p"><h3>Вход в FaceRate</h3><input id="le" type="email" placeholder="E-mail"><input id="lp" type="password" placeholder="Пароль (от 6 символов)"><button id="li">Войти</button> <button class="g" id="lr">Создать аккаунт</button> <button class="g" id="lx">Забыли пароль?</button><p class="mu" id="lm"></p></div>'}
+function card(p){const a=agg([p.id]),mr=S.ratings.find(x=>x.id===p.id+'_'+uid),own=p.uid===uid,cm=S.comments.filter(c=>c.pid===p.id).sort((x,y)=>x.ts-y.ts);
+ return `<div class="card"><div class="row p"><div class="me" data-open="${p.uid}" style="cursor:pointer"><div class="av">${avt(p.uid)}</div><b>@${esc(nm(p.uid))}</b></div>${own?`<button class="g" data-dph="${p.id}">Удалить</button>`:`<button class="g" data-fol="${p.uid}">${S.follows.some(f=>f.a===uid&&f.b===p.uid)?'Отписаться':'Подписаться'}</button>`}</div><img class="im" src="${p.img}" alt=""><div class="p">${p.cap?`<p style="margin:0 0 8px">${esc(p.cap)}</p>`:''}<div class="row"><b>★ ${fmt(a.a)} <span class="mu">· ${a.n} оценок</span></b>${own?'<span class="mu">Своё не оценить</span>':`<details><summary>${mr?'Ваша оценка: '+mr.score:'Оценить'}</summary><div class="pop">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<button class="g ${mr&&mr.score===n?'on':''}" data-rt="${p.id}" data-sc="${n}">${n}</button>`).join('')}</div></details>`}</div>${cm.map(c=>`<div class="mu" style="margin-top:4px"><b>@${esc(nm(c.uid))}</b> ${esc(c.text)} ${c.uid===uid?`<button class="g" data-dc="${c.id}">✕</button>`:`<button class="g" data-rpt="comment:${c.id}">⚑</button>`}</div>`).join('')}<div class="me" style="margin-top:8px"><input id="c${p.id}" placeholder="Комментарий…" style="margin:0"><button data-com="${p.id}">↑</button>${own?'':`<button class="g" data-rpt="photo:${p.id}">⚑</button>`}</div></div></div>`}
+function prof(u){const p=S.profiles[u];if(!p)return'';const ps=S.photos.filter(x=>x.uid===u),a=agg(ps.map(x=>x.id)),fs=S.follows.filter(f=>f.b===u).length,fg=S.follows.filter(f=>f.a===u).length;
+ return `<div class="card p"><div class="me"><div class="av" style="width:64px;height:64px;font-size:24px">${avt(u)}</div><div><b style="font-size:18px">@${esc(p.nick)}</b><div class="mu">${esc(p.bio||'')}</div></div></div><p class="mu"><b>★ ${fmt(a.a)}</b> · ${a.n} оценок · <b>${fs}</b> подписчиков · <b>${fg}</b> подписок</p>${u===uid?`<button class="g" id="av">📷 Аватар</button><button class="g" id="lo">Выйти</button><button class="g" id="dacc" style="color:#e5484d">Удалить аккаунт</button>`:`<button data-fol="${u}">${S.follows.some(f=>f.a===uid&&f.b===u)?'Отписаться':'Подписаться'}</button>`}</div>`+(ps.length?ps.map(card).join(''):'<p class="mu">Фото пока нет</p>')}
+function render(){if(!uid)return;$('#so').textContent=sort==='new'?'Новые':'Лучшие';
+ $('#nav').innerHTML=[['feed','Лента'],['up','＋ Фото'],['me','Профиль']].map(([k,l])=>`<button class="${tab===k?'a':''}" data-tab="${k}">${l}</button>`).join('');
+ if(document.activeElement&&/INPUT|TEXTAREA/.test(document.activeElement.tagName))return;
+ const a=$('#app');if(!LD){a.innerHTML='<p class="mu">…</p>';return}
+ if(!mine()){a.innerHTML='<div class="card p"><h3>Придумайте никнейм</h3><input id="nk" maxlength="20" placeholder="nickname"><input id="bi" maxlength="140" placeholder="О себе"><button id="sv">Сохранить</button></div>';return}
+ let h='';
+ if(tab==='feed'){const l=[...S.photos];if(sort==='top')l.sort((x,y)=>agg([y.id]).a-agg([x.id]).a||agg([y.id]).n-agg([x.id]).n);h=l.length?l.map(card).join(''):'<p class="mu">Пока нет фото. Загрузите первое!</p>'}
+ if(tab==='up')h=`<div class="card p"><h3>Новое фото</h3>${pend?`<img class="im" src="${pend}" style="border-radius:14px;margin-bottom:8px">`:''}<button class="g" id="pk">📷 Выбрать фото</button><input id="pcap" maxlength="140" placeholder="Подпись" value="${esc(pcap)}"><label class="mu" style="display:block;margin-bottom:10px"><input type="checkbox" id="pok" ${pok?'checked':''} style="width:auto;margin:0 6px 0 0">Это моё фото, мне 18+, я согласен(на) на оценки и комментарии</label><button id="pb">Опубликовать</button></div>`;
+ if(tab==='me')h=prof(uid);if(tab==='u')h=prof(peer);
+ a.innerHTML=h}
+document.addEventListener('click',e=>{const b=e.target.closest('button,[data-open]');if(!b)return;const d=b.dataset,i=b.id;
+ if(i==='li'||i==='lr'){const m=$('#lm');m.textContent='…';const f=i==='li'?auth.signInWithEmailAndPassword:auth.createUserWithEmailAndPassword;return f.call(auth,$('#le').value.trim(),$('#lp').value).catch(x=>m.textContent=x.code||x.message)}
+ if(i==='lx'){const v=$('#le').value.trim();return v?auth.sendPasswordResetEmail(v).then(()=>$('#lm').textContent='Письмо для сброса отправлено').catch(x=>$('#lm').textContent=x.code):($('#lm').textContent='Введите e-mail')}
+ if(i==='th'){const r=document.documentElement,n=(r.dataset.t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'))==='dark'?'light':'dark';r.dataset.t=n;try{localStorage.setItem('t',n)}catch(x){}return}
+ if(!uid)return;
+ if(d.sort){sort=sort==='new'?'top':'new';tab='feed';return render()}
+ if(d.tab){tab=d.tab;return render()}
+ if(d.open){peer=d.open;tab=d.open===uid?'me':'u';return render()}
+ if(i==='sv'){const n=$('#nk').value.trim();if(!/^[\wа-яА-ЯёЁ]{2,20}$/.test(n))return toast('Ник: 2–20 букв, цифр или _');if(Object.values(S.profiles).some(p=>p.nick.toLowerCase()===n.toLowerCase()))return toast('Ник занят');return run(db.doc('rp_profiles/'+uid).set({nick:n,bio:$('#bi').value.trim()}))}
+ if(i==='av')return pick(160,.7).then(x=>x&&run(db.doc('rp_profiles/'+uid).set({...mine(),av:x})));
+ if(i==='pk')return pick(1000,.6).then(x=>{if(x){pend=x;render()}});
+ if(i==='pb'){if(!pend)return toast('Выберите фото');if(!pok)return toast('Подтвердите согласие');return run(db.collection('rp_photos').add({uid,img:pend,cap:pcap.trim(),ts:Date.now()}).then(()=>{pend='';pcap='';pok=false;tab='feed';render()}))}
+ if(d.rt)return run(db.doc('rp_ratings/'+d.rt+'_'+uid).set({pid:d.rt,uid,score:+d.sc,ts:Date.now()}));
+ if(d.com){const x=document.getElementById('c'+d.com),v=x.value.trim();if(v){x.value='';run(db.collection('rp_comments').add({pid:d.com,uid,text:v,ts:Date.now()}))}return}
+ if(d.dc)return run(db.doc('rp_comments/'+d.dc).delete());
+ if(d.fol){const r=db.doc('rp_follows/'+uid+'_'+d.fol);return run(S.follows.some(f=>f.id===uid+'_'+d.fol)?r.delete():r.set({a:uid,b:d.fol}))}
+ if(d.rpt){const[k,t]=d.rpt.split(':');return run(db.doc('rp_reports/'+uid+'_'+t).set({uid,kind:k,tid:t,ts:Date.now()}).then(()=>toast('Жалоба отправлена')))}
+ if(d.dph)return run((async()=>{for(const c of['rp_ratings','rp_comments']){const q=await db.collection(c).where('pid','==',d.dph).get();for(const x of q.docs)await x.ref.delete()}await db.doc('rp_photos/'+d.dph).delete()})());
+ if(i==='lo')return auth.signOut();
+ if(i==='dacc'){if(!confirm('Удалить аккаунт и все ваши данные? Это необратимо.'))return;return(async()=>{try{const W=async(c,f,v)=>{const q=await db.collection(c).where(f,'==',v).get();for(const x of q.docs)await x.ref.delete()};
+  const ph=await db.collection('rp_photos').where('uid','==',uid).get();for(const x of ph.docs){await W('rp_ratings','pid',x.id);await W('rp_comments','pid',x.id)}
+  for(const[c,f]of[['rp_photos','uid'],['rp_ratings','uid'],['rp_comments','uid'],['rp_follows','a']])await W(c,f,uid);
+  await db.doc('rp_profiles/'+uid).delete();await auth.currentUser.delete()}catch(x){toast(x.code==='auth/requires-recent-login'?'Войдите заново и повторите':x.code||x.message)}})()}
+});
+document.addEventListener('input',e=>{if(e.target.id==='pcap')pcap=e.target.value;if(e.target.id==='pok')pok=e.target.checked});
+</script></body></html>
